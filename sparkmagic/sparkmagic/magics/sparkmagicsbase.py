@@ -24,6 +24,9 @@ from tqdm import tqdm_notebook as tqdm
 from tqdm import tnrange
 from time import sleep, time
 
+from hops import constants as hopster
+from hops import tls
+
 @magics_class
 class SparkMagicBase(Magics):
     def __init__(self, shell, data=None, spark_events=None):
@@ -231,7 +234,7 @@ class Client(MessageSocket):
             self.ipython_display.writeln(u"Got Method")
             resource_url = hopster.DELIMITERS.SLASH_DELIMITER + \
                            hopster.REST_CONFIG.HOPSWORKS_REST_RESOURCE + hopster.DELIMITERS.SLASH_DELIMITER + \
-                           "maggy" + hopster.DELIMITERS.SLASH_DELIMITER + "getDriver" + \
+                           "maggy" + hopster.DELIMITERS.SLASH_DELIMITER + "drivers" + \
                            hopster.DELIMITERS.SLASH_DELIMITER + self.get_app_id() 
             self.ipython_display.writeln(u"got url")
             self.ipython_display.writeln(resource_url)            

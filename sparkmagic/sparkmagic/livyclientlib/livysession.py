@@ -15,11 +15,6 @@ from .exceptions import LivyClientTimeoutException, \
     LivyUnexpectedStatusException, BadUserDataException, SqlContextNotFoundException
 
 import os
-#from hops import constants
-from hops import constants as hopster
-from hops import tls
-#from hops import util
-from hops import hdfs
 import json
 import pickle
 import socket
@@ -150,20 +145,6 @@ class LivySession(ObjectWithGuid):
             self.ipython_display.html(html)
 
             command = Command("spark")
-
-            #
-            # 1. Check for keyword 'lagom' in self.code
-            if "lagom" in self.code:
-                try:
-                # start thread
-                #
-                finally:
-                    # Stop the maggy thread
-                    
-            # 2. If 'lagom' found, then start thread to query Maggy logs and print logs in this cell
-            # self.ipython_display.writeln(".....")
-            #
-            
             
             (success, out) = command.execute(self)
 
@@ -340,132 +321,4 @@ class LivySession(ObjectWithGuid):
             return u""
 
 
-    def _get_hopsworks_rest_endpoint():
-        elastic_endpoint = os.environ[hopster.ENV_VARIABLES.REST_ENDPOINT_END_VAR]
-        return elastic_endpoint
 
-            
-    def _get_host_port_pair():
-        endpoint = _get_hopsworks_rest_endpoint()
-        if 'http' in endpoint:
-            last_index = endpoint.rfind('/')
-            endpoint = endpoint[last_index + 1:]
-            host_port_pair = endpoint.split(':')
-            return host_port_pair
-        
-    def _get_http_connection(https=False):
-        host_port_pair = _get_host_port_pair()
-        if (https):
-            PROTOCOL = ssl.PROTOCOL_TLSv1_2
-            ssl_context = ssl.SSLContext(PROTOCOL)
-            connection = http.HTTPSConnection(str(host_port_pair[0]), int(host_port_pair[1]), context = ssl_context)
-        else:
-            connection = http.HTTPConnection(str(host_port_pair[0]), int(host_port_pair[1]))
-            return connection
-
-    def _get_jwt():
-        with open(hopster.REST_CONFIG.JWT_TOKEN, "r") as jwt:
-            return jwt.read()
-        
-    def _send_request(connection, method, resource, body=None):
-        headers = {}
-        headers[hopster.HTTP_CONFIG.HTTP_AUTHORIZATION] = "Bearer " + _get_jwt()
-        connection.request(method, resource, body, headers)
-        response = connection.getresponse()
-        if response.status == hopster.HTTP_CONFIG.HTTP_UNAUTHORIZED:
-            headers[hopster.HTTP_CONFIG.HTTP_AUTHORIZATION] = "Bearer " + _get_jwt()
-            connection.request(method, resource, body, headers)
-            response = connection.getresponse()
-        return response
-
-    def _get_maggy_driver(self):
-        """
-        Gets the Maggy Driver for Spark Driver, if it exists.
-        {
-          "app_id" : "xxsdfsd",
-          "host_ip" : "192.168.0.1",
-          "port" : 12345,
-          "secret" : "someKey"
-        }
-        """
-        self.ipython_display.writeln(u"Asking Hopsworks")        
-        try:
-
-            method = hopster.HTTP_CONFIG.HTTP_GET
-            self.ipython_display.writeln(u"Got Method")
-            resource_url = hopster.DELIMITERS.SLASH_DELIMITER + \
-                           hopster.REST_CONFIG.HOPSWORKS_REST_RESOURCE + hopster.DELIMITERS.SLASH_DELIMITER + \
-                           "maggy" + hopster.DELIMITERS.SLASH_DELIMITER + "getDriver" + \
-                           hopster.DELIMITERS.SLASH_DELIMITER + self.get_app_id() 
-            self.ipython_display.writeln(u"got url")
-            self.ipython_display.writeln(resource_url)            
-            endpoint = os.environ[hopster.ENV_VARIABLES.REST_ENDPOINT_END_VAR]            
-            self.ipython_display.writeln(endpoint)            
-            connection = _get_http_connection(https=True)
-            self.ipython_display.writeln(u"got connection")
-            
-            response = _send_request(connection, method, resource_url)
-            resp_body = response.read()
-            resp = json.loads(resp_body)
-
-            # Reset values to 'None' if empty string returned
-            self._maggy_ip = resp[u"host_ip"]
-            self._maggy_port = resp[u"port"]
-            self._maggy_secret = resp[u"secret"]
-            self._hb_interval = 1
-            with open("maggy.conf","w") as f:
-                f.write(resp)
-            
-#            server_addr = (self._maggy_ip, self._maggy_port)
-#            client = Client(server_addr, self._hb_interval, self.ipython_display)
-#            client.start_heartbeat()
-        except:
-            self.ipython_display.writeln("Hopsworks not home...")        
-#            print("Socket error: {}".format(e))
-#        finally:
-#            if client != None:
-#                client.stop()
-#                client.close()
-        
-
-class MessageSocket(object):
-    """Abstract class w/ length-prefixed socket send/receive functions."""
-
-    def receive(self, sock):
-        """
-        Receive a message on ``sock``
-        Args:
-            sock:
-        Returns:
-        """
-        msg = None
-        data = b''
-        recv_done = False
-        recv_len = -1
-        while not recv_done:
-            buf = sock.recv(BUFSIZE)
-            if buf is None or len(buf) == 0:
-                raise Exception("socket closed")
-            if recv_len == -1:
-                recv_len = struct.unpack('>I', buf[:4])[0]
-                data += buf[4:]
-                recv_len -= len(data)
-            else:
-                data += buf
-                recv_len -= len(buf)
-            recv_done = (recv_len == 0)
-
-        msg = pickle.loads(data)
-        return msg
-
-    def send(self, sock, msg):
-        """
-        Send ``msg`` to destination ``sock``.
-        Args:
-            sock:
-            msg:
-        Returns:
-        """
-        data = pickle.dumps(msg)
-        buf = struct.pack('>I', len(data)) + data
-        sock.sendall(buf)
