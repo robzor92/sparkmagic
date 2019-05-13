@@ -123,6 +123,8 @@ class Client(MessageSocket):
         self._maggy_ip = None
         self._maggy_port = None
         self._maggy_secret = None
+        self._num_trials = None
+        self._trials_todate = None                
             
     def _request(self, req_sock, msg_data=None):
         """Helper function to wrap msg w/ msg_type."""
@@ -174,15 +176,21 @@ class Client(MessageSocket):
             self.server_addr = (self._maggy_ip, self._maggy_port)
             self.hb_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.hb_sock.connect(self.server_addr)
-            self.ipython_display.writeln("Connected to the maggy server...")            
+            self.ipython_display.writeln("Connected to the maggy server...")
+
+            resp = self._request(self.hb_sock,'LOG')            
+            self._handle_message(resp)
+
+            # self._num_trials is now 'set', and self._trials_todate
             while not self.done:
-
-                resp = self._request(self.hb_sock,'LOG')
-                self.ipython_display.writeln("Received a msg from  maggy server...")                            
-                _ = self._handle_message(resp)
-
-                # sleep one second
-                time.sleep(self.hb_interval)
+                with tqdm(total=self._num_trials) as pbar:
+                    
+                    resp = self._request(self.hb_sock,'LOG')
+                    self.ipython_display.writeln("Received a msg from  maggy server...")                            
+                    _ = self._handle_message(resp, pbar)
+                    # sleep one second
+                    time.sleep(self.hb_interval)
+                    
 
         t = threading.Thread(target=_heartbeat, args=(self))
         t.daemon = True
@@ -194,7 +202,7 @@ class Client(MessageSocket):
         """Stop the Clients's heartbeat thread."""
         self.done = True
 
-    def _handle_message(self, msg):
+    def _handle_message(self, msg, pbar):
         """
         Handles a  message dictionary. Expects a 'type' and 'data' attribute in
         the message dictionary.
@@ -211,6 +219,9 @@ class Client(MessageSocket):
             data = msg['data']
             self.ipython_display.writeln(data)                
 #            self.ipython_display.html(html)
+
+# https://towardsdatascience.com/progress-bars-in-python-4b44e8a4c482
+# update 'pbar'. pbar.update(1)
         return
                 
     def _get_maggy_driver(self):
