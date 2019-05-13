@@ -150,9 +150,24 @@ class LivySession(ObjectWithGuid):
             self.ipython_display.html(html)
 
             command = Command("spark")
+
+            #
+            # 1. Check for keyword 'lagom' in self.code
+            if "lagom" in self.code:
+                try:
+                # start thread
+                #
+                finally:
+                    # Stop the maggy thread
+                    
+            # 2. If 'lagom' found, then start thread to query Maggy logs and print logs in this cell
+            # self.ipython_display.writeln(".....")
+            #
+            
+            
             (success, out) = command.execute(self)
 
-            self._heartbeat_maggy_logs()                
+            self._get_maggy_driver()                
 
             if success:
                 self.ipython_display.writeln(u"SparkSession available as 'spark'.")
@@ -352,19 +367,18 @@ class LivySession(ObjectWithGuid):
         with open(hopster.REST_CONFIG.JWT_TOKEN, "r") as jwt:
             return jwt.read()
         
-    def _send_request(connection, method, resource, body=None, headers=None):
-        if headers is None:
-            headers = {}
-            headers[hopster.HTTP_CONFIG.HTTP_AUTHORIZATION] = "Bearer " + _get_jwt()
-            connection.request(method, resource, body, headers)
-            response = connection.getresponse()
+    def _send_request(connection, method, resource, body=None):
+        headers = {}
+        headers[hopster.HTTP_CONFIG.HTTP_AUTHORIZATION] = "Bearer " + _get_jwt()
+        connection.request(method, resource, body, headers)
+        response = connection.getresponse()
         if response.status == hopster.HTTP_CONFIG.HTTP_UNAUTHORIZED:
             headers[hopster.HTTP_CONFIG.HTTP_AUTHORIZATION] = "Bearer " + _get_jwt()
             connection.request(method, resource, body, headers)
             response = connection.getresponse()
         return response
 
-    def _heartbeat_maggy_logs(self):
+    def _get_maggy_driver(self):
         """
         Gets the Maggy Driver for Spark Driver, if it exists.
         {
@@ -388,7 +402,8 @@ class LivySession(ObjectWithGuid):
             endpoint = os.environ[hopster.ENV_VARIABLES.REST_ENDPOINT_END_VAR]            
             self.ipython_display.writeln(endpoint)            
             connection = _get_http_connection(https=True)
-            self.ipython_display.writeln(u"got connection")            
+            self.ipython_display.writeln(u"got connection")
+            
             response = _send_request(connection, method, resource_url)
             resp_body = response.read()
             resp = json.loads(resp_body)
@@ -454,91 +469,3 @@ class MessageSocket(object):
         data = pickle.dumps(msg)
         buf = struct.pack('>I', len(data)) + data
         sock.sendall(buf)
-
-class Client(MessageSocket):
-    """Client to register and await log events
-
-    Args:
-        :server_addr: a tuple of (host, port) pointing to the Server.
-    """
-    def __init__(self, server_addr, hb_interval, ipython_display):
-        # socket for heartbeat thread
-        self.hb_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.hb_sock.connect(server_addr)
-        self.server_addr = server_addr
-        self.done = False
-        self.hb_interval = hb_interval
-        self.ipython_display = ipython_display        
-        self.ipython_display.writeln("Starting Maggy Client")
-            
-    def _request(self, req_sock, msg_data=None):
-        """Helper function to wrap msg w/ msg_type."""
-        msg = {}
-        msg['type'] = "LOG"
-
-        if msg_data or ((msg_data == True) or (msg_data == False)):
-            msg['data'] = msg_data
-
-        done = False
-        tries = 0
-        while not done and tries < MAX_RETRIES:
-            try:
-                MessageSocket.send(self, req_sock, msg)
-                done = True
-            except socket.error as e:
-                tries += 1
-                if tries >= MAX_RETRIES:
-                    raise
-                print("Socket error: {}".format(e))
-                req_sock.close()
-                req_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                req_sock.connect(self.server_addr)
-
-        resp = MessageSocket.receive(self, req_sock)
-
-        return resp
-
-    def close(self):
-        """Close the client's sockets."""
-        self.hb_sock.close()
-
-    def start_heartbeat(self):
-
-        def _heartbeat(self):
-
-            while not self.done:
-
-                resp = self._request(self.hb_sock,'LOG')
-                _ = self._handle_message(resp)
-
-                # sleep one second
-                time.sleep(self.hb_interval)
-
-        t = threading.Thread(target=_heartbeat, args=(self))
-        t.daemon = True
-        t.start()
-
-        print("Started log heartbeat")
-
-    def stop(self):
-        """Stop the Clients's heartbeat thread."""
-        self.done = True
-
-    def _handle_message(self, msg):
-        """
-        Handles a  message dictionary. Expects a 'type' and 'data' attribute in
-        the message dictionary.
-
-        Args:
-            sock:
-            msg:
-
-        Returns:
-
-        """
-        msg_type = msg['type']
-        if msg_type == 'LOG':
-            data = msg['data']
-            self.ipython_display.writeln(data)                
-#            self.ipython_display.html(html)
-        return
