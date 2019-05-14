@@ -20,12 +20,17 @@ from sparkmagic.livyclientlib.sqlquery import SQLQuery
 from sparkmagic.livyclientlib.command import Command
 from sparkmagic.livyclientlib.sparkstorecommand import SparkStoreCommand
 
-from time import sleep, time
+
 from threading import Thread
 from tqdm import tqdm_notebook
-
 from hops import constants as hopsconstants
 from hops import tls
+
+import socket
+import struct
+import pickle
+import time
+
 
 @magics_class
 class SparkMagicBase(Magics):
@@ -90,7 +95,7 @@ class SparkMagicBase(Magics):
         if "lagom as" in cell:
             self.ipython_display.send_error("You are not allowed to do the following: 'import maggy.experiment.lagom as ...'. Please, just use 'import maggy.experiment as experiment' (or something else)")
             raise
-        else if "lagom" in cell:
+        elif "lagom" in cell:
             self.ipython_display.write("Found lagom in cell")
             # 1. Get app_id using spark_controller and session_name
             app_id = self.spark_controller.get_app_id(session_name)
@@ -138,6 +143,57 @@ class SparkMagicBase(Magics):
             self.ipython_display.html(u'No active sessions.')
 
 
+
+class MessageSocket(object):
+    """Abstract class w/ length-prefixed socket send/receive functions."""
+
+    def receive(self, sock):
+        """
+        Receive a message on ``sock``
+
+        Args:
+            sock:
+
+        Returns:
+
+        """
+        msg = None
+        data = b''
+        recv_done = False
+        recv_len = -1
+        while not recv_done:
+            buf = sock.recv(BUFSIZE)
+            if buf is None or len(buf) == 0:
+                raise Exception("socket closed")
+            if recv_len == -1:
+                recv_len = struct.unpack('>I', buf[:4])[0]
+                data += buf[4:]
+                recv_len -= len(data)
+            else:
+                data += buf
+                recv_len -= len(buf)
+            recv_done = (recv_len == 0)
+
+        msg = pickle.loads(data)
+        return msg
+
+    def send(self, sock, msg):
+        """
+        Send ``msg`` to destination ``sock``.
+
+        Args:
+            sock:
+            msg:
+
+        Returns:
+
+        """
+        data = pickle.dumps(msg)
+        buf = struct.pack('>I', len(data)) + data
+        sock.sendall(buf)
+
+
+            
 class Client(MessageSocket):
     """Client to register and await log events
 
@@ -260,9 +316,6 @@ class Client(MessageSocket):
         if msg_type == 'OK':
             data = msg['data']
             self.ipython_display.writeln(data)                
-#            self.ipython_display.html(html)
-        else:
-            
 
 # https://towardsdatascience.com/progress-bars-in-python-4b44e8a4c482
 # update 'pbar'. pbar.update(1)

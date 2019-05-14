@@ -104,10 +104,6 @@ class LivySession(ObjectWithGuid):
         self.id = session_id
         self.session_info = u""
 
-        self._maggy_ip = None
-        self._maggy_port = None
-        self._maggy_secret = None
-        
         self._heartbeat_thread = None
         if session_id == -1:
             self.status = constants.NOT_STARTED_SESSION_STATUS
@@ -147,8 +143,6 @@ class LivySession(ObjectWithGuid):
             command = Command("spark")
             
             (success, out) = command.execute(self)
-
-            self._get_maggy_driver()                
 
             if success:
                 self.ipython_display.writeln(u"SparkSession available as 'spark'.")
