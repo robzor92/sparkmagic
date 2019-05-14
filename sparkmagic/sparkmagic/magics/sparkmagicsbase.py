@@ -20,11 +20,11 @@ from sparkmagic.livyclientlib.sqlquery import SQLQuery
 from sparkmagic.livyclientlib.command import Command
 from sparkmagic.livyclientlib.sparkstorecommand import SparkStoreCommand
 
-from tqdm import tqdm_notebook as tqdm
-from tqdm import tnrange
 from time import sleep, time
+from threading import Thread
+from tqdm import tqdm_notebook
 
-from hops import constants as hopster
+from hops import constants as hopsconstants
 from hops import tls
 
 @magics_class
@@ -55,6 +55,37 @@ class SparkMagicBase(Magics):
                 self.shell.user_ns[output_var] = df
 
     def execute_spark(self, cell, output_var, samplemethod, maxrows, samplefraction, session_name, coerce):
+        self.ipython_display.writeln("entered changed funciton")
+        def threaded_function(arg, displ):
+            for i in range(arg):
+                displ.writeln("print with writeln")
+                displ.display("print with display()")
+                time.sleep(1)
+        def tqdm_thread(arg, displ):
+            for j in tqdm_notebook(range(arg), desc='tqdm loop'):
+                time.sleep(1)
+
+        thread = Thread(target = threaded_function, args = (60, self.ipython_display, ))
+        thread_tq = Thread(target = tqdm_thread, args = (60, self.ipython_display, ))
+        thread.start()
+        thread_tq.start()
+
+        self.ipython_display.writeln("started the thread")
+
+        (success, out) = self.spark_controller.run_command(Command(cell), session_name)
+        if not success:
+            self.ipython_display.send_error(out)
+        else:
+            self.ipython_display.write(out)
+            if output_var is not None:
+                spark_store_command = self._spark_store_command(output_var, samplemethod, maxrows, samplefraction, coerce)
+                df = self.spark_controller.run_command(spark_store_command, session_name)
+                self.shell.user_ns[output_var] = df
+        # close thread
+        thread.join()
+        thread_tq.join()
+
+    def execute_spark_bb(self, cell, output_var, samplemethod, maxrows, samplefraction, session_name, coerce):
 
         if "lagom as" in cell:
             self.ipython_display.send_error("You are not allowed to do the following: 'import maggy.experiment.lagom as ...'. Please, just use 'import maggy.experiment as experiment' (or something else)")
@@ -214,14 +245,24 @@ class Client(MessageSocket):
             sock:
             msg:
 
+    {‘type’: 'OK' or 'ERR',
+     ‘ex_logs’: string,     # aggregated logs by all executors
+     ‘num_trials’: int,     # total number planned trials
+     ‘to_date’: int,        # number trials finished to date
+     ‘stopped’: int,        # number trials early stopped
+     ‘metric’: float        # best metric to date
+    }
+
         Returns:
 
         """
         msg_type = msg['type']
-        if msg_type == 'LOG':
+        if msg_type == 'OK':
             data = msg['data']
             self.ipython_display.writeln(data)                
 #            self.ipython_display.html(html)
+        else:
+            
 
 # https://towardsdatascience.com/progress-bars-in-python-4b44e8a4c482
 # update 'pbar'. pbar.update(1)
@@ -230,15 +271,15 @@ class Client(MessageSocket):
     def _get_maggy_driver(self):
         self.ipython_display.writeln(u"Asking Hopsworks")        
         try:
-            method = hopster.HTTP_CONFIG.HTTP_GET
+            method = hopsconstants.HTTP_CONFIG.HTTP_GET
             self.ipython_display.writeln(u"Got Method")
-            resource_url = hopster.DELIMITERS.SLASH_DELIMITER + \
-                           hopster.REST_CONFIG.HOPSWORKS_REST_RESOURCE + hopster.DELIMITERS.SLASH_DELIMITER + \
-                           "maggy" + hopster.DELIMITERS.SLASH_DELIMITER + "drivers" + \
-                           hopster.DELIMITERS.SLASH_DELIMITER + self.get_app_id() 
+            resource_url = hopsconstants.DELIMITERS.SLASH_DELIMITER + \
+                           hopsconstants.REST_CONFIG.HOPSWORKS_REST_RESOURCE + hopsconstants.DELIMITERS.SLASH_DELIMITER + \
+                           "maggy" + hopsconstants.DELIMITERS.SLASH_DELIMITER + "drivers" + \
+                           hopsconstants.DELIMITERS.SLASH_DELIMITER + self.get_app_id() 
             self.ipython_display.writeln(u"got url")
             self.ipython_display.writeln(resource_url)            
-            endpoint = os.environ[hopster.ENV_VARIABLES.REST_ENDPOINT_END_VAR]            
+            endpoint = os.environ[hopsconstants.ENV_VARIABLES.REST_ENDPOINT_END_VAR]            
             self.ipython_display.writeln(endpoint)            
             connection = _get_http_connection(https=True)
             self.ipython_display.writeln(u"got connection")
@@ -255,7 +296,7 @@ class Client(MessageSocket):
             self.ipython_display.writeln("Hopsworks not home...")        
 
     def _get_hopsworks_rest_endpoint():
-        elastic_endpoint = os.environ[hopster.ENV_VARIABLES.REST_ENDPOINT_END_VAR]
+        elastic_endpoint = os.environ[hopsconstants.ENV_VARIABLES.REST_ENDPOINT_END_VAR]
         return elastic_endpoint
 
             
@@ -278,16 +319,16 @@ class Client(MessageSocket):
             return connection
 
     def _get_jwt():
-        with open(hopster.REST_CONFIG.JWT_TOKEN, "r") as jwt:
+        with open(hopsconstants.REST_CONFIG.JWT_TOKEN, "r") as jwt:
             return jwt.read()
 
     def _send_request(connection, method, resource, body=None):
         headers = {}
-        headers[hopster.HTTP_CONFIG.HTTP_AUTHORIZATION] = "Bearer " + _get_jwt()
+        headers[hopsconstants.HTTP_CONFIG.HTTP_AUTHORIZATION] = "Bearer " + _get_jwt()
         connection.request(method, resource, body, headers)
         response = connection.getresponse()
-        if response.status == hopster.HTTP_CONFIG.HTTP_UNAUTHORIZED:
-            headers[hopster.HTTP_CONFIG.HTTP_AUTHORIZATION] = "Bearer " + _get_jwt()
+        if response.status == hopsconstants.HTTP_CONFIG.HTTP_UNAUTHORIZED:
+            headers[hopsconstants.HTTP_CONFIG.HTTP_AUTHORIZATION] = "Bearer " + _get_jwt()
             connection.request(method, resource, body, headers)
             response = connection.getresponse()
         return response
