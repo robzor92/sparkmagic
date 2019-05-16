@@ -100,7 +100,7 @@ class SparkMagicBase(Magics):
             # 1. Get app_id using spark_controller and session_name
             app_id = self.spark_controller.get_app_id(session_name)
             self.ipython_display.write("App id is: " + app_id)            
-            client = Client(app_id, 5, self.ipython_display)            
+            client = Client(app_id, 5, self.ipython_display)
             try: 
                 client.start_heartbeat()
                 self.ipython_display.write("Started heartbeating...")
@@ -200,7 +200,7 @@ class Client(MessageSocket):
     Args:
         :server_addr: a tuple of (host, port) pointing to the Server.
     """
-    def __init__(self, app_id, hb_interval, ipython_display):
+    def __init__(self, app_id, hb_interval, ipython_display, secret):
         # socket for heartbeat thread
         self.hb_sock = None
         self.hb_sock = None
@@ -212,15 +212,16 @@ class Client(MessageSocket):
         self._app_id = app_id
         self._maggy_ip = None
         self._maggy_port = None
-        self._maggy_secret = None
+        self._secret = None
         self._num_trials = None
         self._trials_todate = None                
-            
+        
     def _request(self, req_sock, msg_data=None):
         """Helper function to wrap msg w/ msg_type."""
         msg = {}
         msg['type'] = "LOG"
-
+        msg['secret'] = self._secret
+        
         if msg_data or ((msg_data == True) or (msg_data == False)):
             msg['data'] = msg_data
 
@@ -285,13 +286,12 @@ class Client(MessageSocket):
             # self._num_trials is now 'set', and self._trials_todate
             while not self.done:
                 with tqdm(total=self._num_trials) as pbar:
-                    
+                    _ = self._handle_message(resp, pbar)
+                    time.sleep(self.hb_interval)
                     resp = self._request(self.hb_sock,'LOG')
                     self.ipython_display.writeln("Received a msg from  maggy server...")
-
-                    _ = self._handle_message(resp, pbar)
                     # sleep one second
-                    time.sleep(self.hb_interval)
+
                     
 
         t = threading.Thread(target=_heartbeat, args=(self))
@@ -328,6 +328,7 @@ class Client(MessageSocket):
             self.ipython_display.writeln("SUCCESS")
         else
             self.ipython_display.writeln("FAILURE")
+            return
 
         if msg['to_date'] != None:
             self.ipython_display.writeln("Number trials finished: " + str(msg['to_date']))
@@ -340,7 +341,7 @@ class Client(MessageSocket):
             self.ipython_display.writeln("Best result, so far: " + str(msg['metric']))            
 
         if msg['ex_logs'] != None:
-            self.ipython_display.writeln("Best result, so far: " + str(msg['ex_logs']))            
+            self.ipython_display.writeln(msg['ex_logs'])
             
 # https://towardsdatascience.com/progress-bars-in-python-4b44e8a4c482
 # update 'pbar'. pbar.update(1)
@@ -369,9 +370,9 @@ class Client(MessageSocket):
                 raise Exception
 
             # Reset values to 'None' if empty string returned
-            self._maggy_ip = resp[u"host_ip"]
+            self._maggy_ip = resp[u"hostIp"]
             self._maggy_port = resp[u"port"]
-            self._maggy_secret = resp[u"secret"]
+            self._secret = resp[u"secret"]
         except:
             self.ipython_display.writeln("Hopsworks not home...")        
 
