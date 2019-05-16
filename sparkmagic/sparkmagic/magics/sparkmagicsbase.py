@@ -59,7 +59,7 @@ class SparkMagicBase(Magics):
                 df = self.spark_controller.run_command(spark_store_command, session_name)
                 self.shell.user_ns[output_var] = df
 
-    def execute_spark(self, cell, output_var, samplemethod, maxrows, samplefraction, session_name, coerce):
+    def execute_spark_bb(self, cell, output_var, samplemethod, maxrows, samplefraction, session_name, coerce):
         self.ipython_display.writeln("entered changed funciton")
         def threaded_function(arg, displ):
             for i in range(arg):
@@ -90,13 +90,13 @@ class SparkMagicBase(Magics):
         thread.join()
         thread_tq.join()
 
-    def execute_spark_bb(self, cell, output_var, samplemethod, maxrows, samplefraction, session_name, coerce):
+    def execute_spark(self, cell, output_var, samplemethod, maxrows, samplefraction, session_name, coerce):
 
         if "lagom as" in cell:
             self.ipython_display.send_error("You are not allowed to do the following: 'import maggy.experiment.lagom as ...'. Please, just use 'import maggy.experiment as experiment' (or something else)")
             raise
-        elif "lagom" in cell:
-            self.ipython_display.write("Found lagom in cell")
+        elif "launch." in cell:
+            self.ipython_display.write("Found experiment in cell")
             # 1. Get app_id using spark_controller and session_name
             app_id = self.spark_controller.get_app_id(session_name)
             self.ipython_display.write("App id is: " + app_id)            
@@ -269,14 +269,26 @@ class Client(MessageSocket):
             self.ipython_display.writeln("Connected to the maggy server...")
 
             resp = self._request(self.hb_sock,'LOG')            
-            self._handle_message(resp)
+            self._num_trials = 0
+            if resp['num_trials'] != None:
+                self._num_trials = resp['num_trials']
 
+            def threaded_function(arg, displ):
+                for i in range(arg):
+                    displ.writeln("print with writeln")
+                    displ.display("print with display()")
+                    time.sleep(1)
+            def tqdm_thread(arg, displ):
+                for j in tqdm_notebook(range(arg), desc='tqdm loop'):
+                    time.sleep(1)
+                
             # self._num_trials is now 'set', and self._trials_todate
             while not self.done:
                 with tqdm(total=self._num_trials) as pbar:
                     
                     resp = self._request(self.hb_sock,'LOG')
-                    self.ipython_display.writeln("Received a msg from  maggy server...")                            
+                    self.ipython_display.writeln("Received a msg from  maggy server...")
+
                     _ = self._handle_message(resp, pbar)
                     # sleep one second
                     time.sleep(self.hb_interval)
@@ -286,7 +298,7 @@ class Client(MessageSocket):
         t.daemon = True
         t.start()
 
-        print("Started log heartbeat")
+        self.ipython_display.writeln("Started log heartbeat")
 
     def stop(self):
         """Stop the Clients's heartbeat thread."""
@@ -312,11 +324,24 @@ class Client(MessageSocket):
         Returns:
 
         """
-        msg_type = msg['type']
-        if msg_type == 'OK':
-            data = msg['data']
-            self.ipython_display.writeln(data)                
+        if msg['type'] == 'OK':
+            self.ipython_display.writeln("SUCCESS")
+        else
+            self.ipython_display.writeln("FAILURE")
 
+        if msg['to_date'] != None:
+            self.ipython_display.writeln("Number trials finished: " + str(msg['to_date']))
+            pbar = msg['to_date']
+            
+        if msg['stopped'] != None:
+            self.ipython_display.writeln("Number trials stopped: " + str(msg['stopped']))
+
+        if msg['metric'] != None:
+            self.ipython_display.writeln("Best result, so far: " + str(msg['metric']))            
+
+        if msg['ex_logs'] != None:
+            self.ipython_display.writeln("Best result, so far: " + str(msg['ex_logs']))            
+            
 # https://towardsdatascience.com/progress-bars-in-python-4b44e8a4c482
 # update 'pbar'. pbar.update(1)
         return
