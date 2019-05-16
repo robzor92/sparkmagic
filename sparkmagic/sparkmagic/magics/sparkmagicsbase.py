@@ -336,10 +336,12 @@ class Client(MessageSocket):
             self.ipython_display.writeln(endpoint)            
             connection = _get_http_connection(https=True)
             self.ipython_display.writeln(u"got connection")
-            
             response = _send_request(connection, method, resource_url)
-            resp_body = response.read()
-            resp = json.loads(resp_body)
+            if (response.status == 200):
+                resp_body = response.read()
+                resp = json.loads(resp_body)
+            else:
+                raise Exception
 
             # Reset values to 'None' if empty string returned
             self._maggy_ip = resp[u"host_ip"]
