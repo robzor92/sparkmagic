@@ -326,7 +326,7 @@ class Client(MessageSocket):
         """
         if msg['type'] == 'OK':
             self.ipython_display.writeln("SUCCESS")
-        else
+        else:
             self.ipython_display.writeln("FAILURE")
             return
 
