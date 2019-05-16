@@ -200,7 +200,7 @@ class Client(MessageSocket):
     Args:
         :server_addr: a tuple of (host, port) pointing to the Server.
     """
-    def __init__(self, app_id, hb_interval, ipython_display, secret):
+    def __init__(self, app_id, hb_interval, ipython_display):
         # socket for heartbeat thread
         self.hb_sock = None
         self.hb_sock = None
@@ -274,23 +274,16 @@ class Client(MessageSocket):
             if resp['num_trials'] != None:
                 self._num_trials = resp['num_trials']
 
-            def threaded_function(arg, displ):
-                for i in range(arg):
-                    displ.writeln("print with writeln")
-                    displ.display("print with display()")
-                    time.sleep(1)
-            def tqdm_thread(arg, displ):
-                for j in tqdm_notebook(range(arg), desc='tqdm loop'):
-                    time.sleep(1)
-                
-            # self._num_trials is now 'set', and self._trials_todate
             while not self.done:
-                with tqdm(total=self._num_trials) as pbar:
-                    _ = self._handle_message(resp, pbar)
-                    time.sleep(self.hb_interval)
-                    resp = self._request(self.hb_sock,'LOG')
-                    self.ipython_display.writeln("Received a msg from  maggy server...")
-                    # sleep one second
+                # self._num_trials is now 'set', and self._trials_todate
+                for j in tqdm_notebook(range(self._num_trials), desc='tqdm loop'):
+                    if self.done == False: 
+                        break 
+                    with tqdm(total=self._num_trials) as pbar:
+                        _ = self._handle_message(resp, pbar)
+                        time.sleep(self.hb_interval)
+                        resp = self._request(self.hb_sock,'LOG')
+                        self.ipython_display.writeln("Received a msg from  maggy server...")
 
                     
 
@@ -373,6 +366,7 @@ class Client(MessageSocket):
             self._maggy_ip = resp[u"hostIp"]
             self._maggy_port = resp[u"port"]
             self._secret = resp[u"secret"]
+            self.ipython_display.writeln("Found! " + self._maggy_ip)            
         except:
             self.ipython_display.writeln("Hopsworks not home...")        
 
