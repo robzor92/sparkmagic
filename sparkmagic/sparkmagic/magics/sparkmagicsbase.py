@@ -82,7 +82,7 @@ class SparkMagicBase(Magics):
             except:
                 raise
             finally:
-                # 4. Kill thread before leaving current scope                           
+                # 4. Kill thread before leaving current scope
                 client.stop()
                 client.close()
         else:
@@ -225,6 +225,17 @@ class Client(MessageSocket):
     def start_heartbeat(self):
 
         def _heartbeat(self):
+            num_tries = 10
+            while num_tries > 0:
+                num_tries -= 1
+                try:
+                    self.ipython_display.writeln("Looking for the maggy server...")
+                    self._get_maggy_driver()
+                    num_tries = 0
+                    self.server_addr = (self._maggy_ip, self._maggy_port)                            
+                except:
+                    time.sleep(self.hb_interval)                    
+                    pass
 
             self.ipython_display.writeln("Found the maggy server...")                                    
             # 3. Start thread running polling logs in Maggy.
@@ -248,17 +259,7 @@ class Client(MessageSocket):
                         resp = self._request(self.hb_sock,'LOG')
                         self.ipython_display.writeln("Received a msg from  maggy server...")
 
-        num_tries = 10
-        while num_tries > 0:
-            num_tries -= 1
-            try:
-                self.ipython_display.writeln("Looking for the maggy server...")                              self._get_maggy_driver()
-                num_tries = 0
-            except:
-                time.sleep(self.hb_interval)                    
-                pass
 
-        self.server_addr = (self._maggy_ip, self._maggy_port)            
         t = Thread(target=_heartbeat, args=(self,))
         t.daemon = True
         t.start()
@@ -328,6 +329,7 @@ class Client(MessageSocket):
         self.ipython_display.writeln(u"got response")
         # '500' response if maggy has not registered yet
         if reponse.status != 200:
+            self.ipython_display.writeln(u"bad response")
             raise Exception
         resp_body = response.read()
         resp = json.loads(resp_body)
@@ -372,8 +374,6 @@ class Client(MessageSocket):
         headers[hopsconstants.HTTP_CONFIG.HTTP_AUTHORIZATION] = "Bearer " + self._get_jwt()
         connection.request(method, resource, body, headers)
         response = connection.getresponse()        
-        if response.status != 200:
-            self.ipython_display.writeln("Error in connection")
         if response.status == hopsconstants.HTTP_CONFIG.HTTP_UNAUTHORIZED:
             headers[hopsconstants.HTTP_CONFIG.HTTP_AUTHORIZATION] = "Bearer " + self._get_jwt()
             connection.request(method, resource, body, headers)
