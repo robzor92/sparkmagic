@@ -27,10 +27,15 @@ from hops import constants as hopsconstants
 from hops import tls
 
 import socket
+import ssl
 import struct
 import pickle
 import time
-
+import os
+try:
+        import http.client as http
+except ImportError:
+        import httplib as http
 
 @magics_class
 class SparkMagicBase(Magics):
@@ -58,37 +63,6 @@ class SparkMagicBase(Magics):
                 spark_store_command = self._spark_store_command(output_var, samplemethod, maxrows, samplefraction, coerce)
                 df = self.spark_controller.run_command(spark_store_command, session_name)
                 self.shell.user_ns[output_var] = df
-
-    def execute_spark_bb(self, cell, output_var, samplemethod, maxrows, samplefraction, session_name, coerce):
-        self.ipython_display.writeln("entered changed funciton")
-        def threaded_function(arg, displ):
-            for i in range(arg):
-                displ.writeln("print with writeln")
-                displ.display("print with display()")
-                time.sleep(1)
-        def tqdm_thread(arg, displ):
-            for j in tqdm_notebook(range(arg), desc='tqdm loop'):
-                time.sleep(1)
-
-        thread = Thread(target = threaded_function, args = (60, self.ipython_display, ))
-        thread_tq = Thread(target = tqdm_thread, args = (60, self.ipython_display, ))
-        thread.start()
-        thread_tq.start()
-
-        self.ipython_display.writeln("started the thread")
-
-        (success, out) = self.spark_controller.run_command(Command(cell), session_name)
-        if not success:
-            self.ipython_display.send_error(out)
-        else:
-            self.ipython_display.write(out)
-            if output_var is not None:
-                spark_store_command = self._spark_store_command(output_var, samplemethod, maxrows, samplefraction, coerce)
-                df = self.spark_controller.run_command(spark_store_command, session_name)
-                self.shell.user_ns[output_var] = df
-        # close thread
-        thread.join()
-        thread_tq.join()
 
     def execute_spark(self, cell, output_var, samplemethod, maxrows, samplefraction, session_name, coerce):
 
@@ -250,21 +224,10 @@ class Client(MessageSocket):
 
     def start_heartbeat(self):
 
-        def _heartbeat(self):
-
-            # 2. Using app_id, get Maggy Ip/port/secret from Hopsworks
-            res = False
-            while res is False:
-                try:
-                    self.ipython_display.writeln("Looking for the maggy server...")                    
-                    res = self._get_maggy_driver()
-                except:
-                    time.sleep(self.hb_interval)                    
-                    pass
+        def _heartbeat(ipython_display, server_addr):
 
             self.ipython_display.writeln("Found the maggy server...")                                    
             # 3. Start thread running polling logs in Maggy.
-            self.server_addr = (self._maggy_ip, self._maggy_port)
             self.hb_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.hb_sock.connect(self.server_addr)
             self.ipython_display.writeln("Connected to the maggy server...")
@@ -287,7 +250,17 @@ class Client(MessageSocket):
 
                     
 
-        t = threading.Thread(target=_heartbeat, args=(self))
+        res = False
+        while res is False:
+            try:
+                self.ipython_display.writeln("Looking for the maggy server...")                    
+                res = self._get_maggy_driver()
+            except:
+                time.sleep(self.hb_interval)                    
+                pass
+
+        server_addr = (self._maggy_ip, self._maggy_port)            
+        t = Thread(target=_heartbeat, args=(self.ipython_display,server_addr))
         t.daemon = True
         t.start()
 
@@ -348,14 +321,12 @@ class Client(MessageSocket):
             resource_url = hopsconstants.DELIMITERS.SLASH_DELIMITER + \
                            hopsconstants.REST_CONFIG.HOPSWORKS_REST_RESOURCE + hopsconstants.DELIMITERS.SLASH_DELIMITER + \
                            "maggy" + hopsconstants.DELIMITERS.SLASH_DELIMITER + "drivers" + \
-                           hopsconstants.DELIMITERS.SLASH_DELIMITER + self.get_app_id() 
+                           hopsconstants.DELIMITERS.SLASH_DELIMITER + self._app_id
             self.ipython_display.writeln(u"got url")
             self.ipython_display.writeln(resource_url)            
-            endpoint = os.environ[hopsconstants.ENV_VARIABLES.REST_ENDPOINT_END_VAR]            
-            self.ipython_display.writeln(endpoint)            
-            connection = _get_http_connection(https=True)
+            connection = self._get_http_connection(https=True)
             self.ipython_display.writeln(u"got connection")
-            response = _send_request(connection, method, resource_url)
+            response = self._send_request(connection, method, resource_url)
             if (response.status == 200):
                 resp_body = response.read()
                 resp = json.loads(resp_body)
@@ -370,21 +341,23 @@ class Client(MessageSocket):
         except:
             self.ipython_display.writeln("Hopsworks not home...")        
 
-    def _get_hopsworks_rest_endpoint():
+    def _get_hopsworks_rest_endpoint(self):
+        self.ipython_display.writeln("endpoint")
         elastic_endpoint = os.environ[hopsconstants.ENV_VARIABLES.REST_ENDPOINT_END_VAR]
         return elastic_endpoint
 
             
-    def _get_host_port_pair():
-        endpoint = _get_hopsworks_rest_endpoint()
+    def _get_host_port_pair(self):
+        endpoint = self._get_hopsworks_rest_endpoint()
+        self.ipython_display.writeln("got endpoint")
         if 'http' in endpoint:
             last_index = endpoint.rfind('/')
             endpoint = endpoint[last_index + 1:]
             host_port_pair = endpoint.split(':')
             return host_port_pair
         
-    def _get_http_connection(https=False):
-        host_port_pair = _get_host_port_pair()
+    def _get_http_connection(self, https=False):
+        host_port_pair = self._get_host_port_pair()
         if (https):
             PROTOCOL = ssl.PROTOCOL_TLSv1_2
             ssl_context = ssl.SSLContext(PROTOCOL)
@@ -393,17 +366,17 @@ class Client(MessageSocket):
             connection = http.HTTPConnection(str(host_port_pair[0]), int(host_port_pair[1]))
             return connection
 
-    def _get_jwt():
+    def _get_jwt(self):
         with open(hopsconstants.REST_CONFIG.JWT_TOKEN, "r") as jwt:
             return jwt.read()
 
-    def _send_request(connection, method, resource, body=None):
+    def _send_request(self, connection, method, resource, body=None):
         headers = {}
-        headers[hopsconstants.HTTP_CONFIG.HTTP_AUTHORIZATION] = "Bearer " + _get_jwt()
+        headers[hopsconstants.HTTP_CONFIG.HTTP_AUTHORIZATION] = "Bearer " + self._get_jwt()
         connection.request(method, resource, body, headers)
         response = connection.getresponse()
         if response.status == hopsconstants.HTTP_CONFIG.HTTP_UNAUTHORIZED:
-            headers[hopsconstants.HTTP_CONFIG.HTTP_AUTHORIZATION] = "Bearer " + _get_jwt()
+            headers[hopsconstants.HTTP_CONFIG.HTTP_AUTHORIZATION] = "Bearer " + self._get_jwt()
             connection.request(method, resource, body, headers)
             response = connection.getresponse()
         return response
