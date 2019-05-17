@@ -69,7 +69,7 @@ class SparkMagicBase(Magics):
         if "lagom as" in cell:
             self.ipython_display.send_error("You are not allowed to do the following: 'import maggy.experiment.lagom as ...'. Please, just use 'import maggy.experiment as experiment' (or something else)")
             raise
-        elif "launch." in cell:
+        elif "lagom." in cell:
             self.ipython_display.write("Found experiment in cell")
             # 1. Get app_id using spark_controller and session_name
             app_id = self.spark_controller.get_app_id(session_name)
