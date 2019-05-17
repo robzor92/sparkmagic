@@ -69,7 +69,7 @@ class SparkMagicBase(Magics):
         if "lagom as" in cell:
             self.ipython_display.send_error("You are not allowed to do the following: 'import maggy.experiment.lagom as ...'. Please, just use 'import maggy.experiment as experiment' (or something else)")
             raise
-        elif "lagom." in cell:
+        elif ".lagom" in cell:
             self.ipython_display.write("Found experiment in cell")
             # 1. Get app_id using spark_controller and session_name
             app_id = self.spark_controller.get_app_id(session_name)
@@ -172,7 +172,7 @@ class Client(MessageSocket):
     """Client to register and await log events
 
     Args:
-        :server_addr: a tuple of (host, port) pointing to the Server.
+
     """
     def __init__(self, app_id, hb_interval, ipython_display):
         # socket for heartbeat thread
@@ -224,7 +224,7 @@ class Client(MessageSocket):
 
     def start_heartbeat(self):
 
-        def _heartbeat(ipython_display, server_addr):
+        def _heartbeat(self):
 
             self.ipython_display.writeln("Found the maggy server...")                                    
             # 3. Start thread running polling logs in Maggy.
@@ -248,8 +248,6 @@ class Client(MessageSocket):
                         resp = self._request(self.hb_sock,'LOG')
                         self.ipython_display.writeln("Received a msg from  maggy server...")
 
-                    
-
         res = False
         while res is False:
             try:
@@ -259,8 +257,8 @@ class Client(MessageSocket):
                 time.sleep(self.hb_interval)                    
                 pass
 
-        server_addr = (self._maggy_ip, self._maggy_port)            
-        t = Thread(target=_heartbeat, args=(self.ipython_display,server_addr))
+        self.server_addr = (self._maggy_ip, self._maggy_port)            
+        t = Thread(target=_heartbeat, args=(self,))
         t.daemon = True
         t.start()
 
@@ -327,6 +325,7 @@ class Client(MessageSocket):
             connection = self._get_http_connection(https=True)
             self.ipython_display.writeln(u"got connection")
             response = self._send_request(connection, method, resource_url)
+            self.ipython_display.writeln(u"got response")            
             if (response.status == 200):
                 resp_body = response.read()
                 resp = json.loads(resp_body)
