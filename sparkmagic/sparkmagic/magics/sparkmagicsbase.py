@@ -79,7 +79,7 @@ class SparkMagicBase(Magics):
             client = Client(self.spark_controller, self.session_name, 5, self.ipython_display)
             try: 
                 client.start_heartbeat()
-                self.ipython_display.writeln("Started heartbeating...")
+                #self.ipython_display.writeln("Started heartbeating...")
                 self.execute_final(cell, output_var, samplemethod, maxrows, samplefraction, session_name, coerce)
             except:
                 raise
@@ -187,7 +187,7 @@ class Client(MessageSocket):
         self.done = False
         self.hb_interval = hb_interval
         self.ipython_display = ipython_display        
-        self.ipython_display.writeln("Starting Maggy Client")
+        #self.ipython_display.writeln("Starting Maggy Client")
         self.spark_controller = spark_controller
         self.session_name = session_name
         self._app_id = None
@@ -239,7 +239,7 @@ class Client(MessageSocket):
             while num_tries > 0:
                 num_tries -= 1
                 try:
-                    self.ipython_display.writeln("Looking for the maggy server...")
+                    #self.ipython_display.writeln("Looking for the maggy server...")
                     self._get_maggy_driver()
                     num_tries = 0
                     self.server_addr = (self._maggy_ip, self._maggy_port)                            
@@ -247,7 +247,7 @@ class Client(MessageSocket):
                     time.sleep(self.hb_interval)                    
                     pass
 
-            self.ipython_display.writeln("Found the maggy server...")                                    
+            #self.ipython_display.writeln("Found the maggy server...")                                    
             # 3. Start thread running polling logs in Maggy.
             self.hb_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.hb_sock.connect(self.server_addr)
@@ -323,16 +323,16 @@ class Client(MessageSocket):
         return
                 
     def _get_maggy_driver(self):
-        self.ipython_display.writeln(u"Asking Hopsworks")        
+        #self.ipython_display.writeln(u"Asking Hopsworks")        
         method = hopsconstants.HTTP_CONFIG.HTTP_GET
-        self.ipython_display.writeln(u"Got Method")
+        #self.ipython_display.writeln(u"Got Method")
         resource_url = hopsconstants.DELIMITERS.SLASH_DELIMITER + \
                        hopsconstants.REST_CONFIG.HOPSWORKS_REST_RESOURCE + hopsconstants.DELIMITERS.SLASH_DELIMITER + \
                        "maggy" + hopsconstants.DELIMITERS.SLASH_DELIMITER + "drivers" + \
                        hopsconstants.DELIMITERS.SLASH_DELIMITER + self._app_id
-        self.ipython_display.writeln(u"got url: " + resource_url)            
+        #self.ipython_display.writeln(u"got url: " + resource_url)            
         connection = self._get_http_connection(https=True)
-        self.ipython_display.writeln(u"got connection")
+        #self.ipython_display.writeln(u"got connection")
         headers = {}
         jwt_text = self._get_jwt()
         headers[hopsconstants.HTTP_CONFIG.HTTP_AUTHORIZATION] = "Bearer " + jwt_text
@@ -356,14 +356,14 @@ class Client(MessageSocket):
         connection.close()
 
     def _get_hopsworks_rest_endpoint(self):
-        self.ipython_display.writeln("endpoint")
+        #self.ipython_display.writeln("endpoint")
         elastic_endpoint = os.environ[hopsconstants.ENV_VARIABLES.REST_ENDPOINT_END_VAR]
         return elastic_endpoint
 
             
     def _get_host_port_pair(self):
         endpoint = self._get_hopsworks_rest_endpoint()
-        self.ipython_display.writeln("got endpoint")
+        #self.ipython_display.writeln("got endpoint")
         if 'http' in endpoint:
             last_index = endpoint.rfind('/')
             endpoint = endpoint[last_index + 1:]
