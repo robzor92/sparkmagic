@@ -32,10 +32,16 @@ import struct
 import pickle
 import time
 import os
+import json
+
+
 try:
         import http.client as http
 except ImportError:
         import httplib as http
+
+MAX_RETRIES = 3
+BUFSIZE = 1024 * 2
 
 @magics_class
 class SparkMagicBase(Magics):
@@ -58,7 +64,7 @@ class SparkMagicBase(Magics):
         if not success:
             self.ipython_display.send_error(out)
         else:
-            self.ipython_display.write(out)
+            self.ipython_display.writeln(out)
             if output_var is not None:
                 spark_store_command = self._spark_store_command(output_var, samplemethod, maxrows, samplefraction, coerce)
                 df = self.spark_controller.run_command(spark_store_command, session_name)
@@ -70,21 +76,20 @@ class SparkMagicBase(Magics):
             self.ipython_display.send_error("You are not allowed to do the following: 'import maggy.experiment.lagom as ...'. Please, just use 'import maggy.experiment as experiment' (or something else)")
             raise
         elif ".lagom" in cell:
-            self.ipython_display.write("Found experiment in cell")
-            # 1. Get app_id using spark_controller and session_name
-            app_id = self.spark_controller.get_app_id(session_name)
-            self.ipython_display.write("App id is: " + app_id)            
-            client = Client(app_id, 5, self.ipython_display)
+            client = Client(self.spark_controller, self.session_name, 5, self.ipython_display)
             try: 
                 client.start_heartbeat()
-                self.ipython_display.write("Started heartbeating...")
+                self.ipython_display.writeln("Started heartbeating...")
                 self.execute_final(cell, output_var, samplemethod, maxrows, samplefraction, session_name, coerce)
             except:
                 raise
             finally:
                 # 4. Kill thread before leaving current scope
                 client.stop()
-                client.close()
+                try:
+                    client.close()
+                except:
+                    print("Problem closing socket connecting to Maggy")
         else:
             self.execute_final(cell, output_var, samplemethod, maxrows, samplefraction, session_name, coerce)
 
@@ -174,7 +179,7 @@ class Client(MessageSocket):
     Args:
 
     """
-    def __init__(self, app_id, hb_interval, ipython_display):
+    def __init__(self, spark_controller, session_name, hb_interval, ipython_display):
         # socket for heartbeat thread
         self.hb_sock = None
         self.hb_sock = None
@@ -183,7 +188,9 @@ class Client(MessageSocket):
         self.hb_interval = hb_interval
         self.ipython_display = ipython_display        
         self.ipython_display.writeln("Starting Maggy Client")
-        self._app_id = app_id
+        self.spark_controller = spark_controller
+        self.session_name = session_name
+        self._app_id = None
         self._maggy_ip = None
         self._maggy_port = None
         self._secret = None
@@ -220,11 +227,14 @@ class Client(MessageSocket):
 
     def close(self):
         """Close the client's sockets."""
-        self.hb_sock.close()
+        if self.hb_sock != None:
+            self.hb_sock.close()
 
     def start_heartbeat(self):
 
         def _heartbeat(self):
+            self._app_id = self.spark_controller.get_app_id(self.session_name)
+                
             num_tries = 10
             while num_tries > 0:
                 num_tries -= 1
@@ -264,7 +274,6 @@ class Client(MessageSocket):
         t.daemon = True
         t.start()
 
-        self.ipython_display.writeln("Started log heartbeat")
 
     def stop(self):
         """Stop the Clients's heartbeat thread."""
@@ -321,8 +330,7 @@ class Client(MessageSocket):
                        hopsconstants.REST_CONFIG.HOPSWORKS_REST_RESOURCE + hopsconstants.DELIMITERS.SLASH_DELIMITER + \
                        "maggy" + hopsconstants.DELIMITERS.SLASH_DELIMITER + "drivers" + \
                        hopsconstants.DELIMITERS.SLASH_DELIMITER + self._app_id
-        self.ipython_display.writeln(u"got url")
-        self.ipython_display.writeln(resource_url)            
+        self.ipython_display.writeln(u"got url: " + resource_url)            
         connection = self._get_http_connection(https=True)
         self.ipython_display.writeln(u"got connection")
         response = self._send_request(connection, method, resource_url)
@@ -371,11 +379,12 @@ class Client(MessageSocket):
 
     def _send_request(self, connection, method, resource, body=None):
         headers = {}
-        headers[hopsconstants.HTTP_CONFIG.HTTP_AUTHORIZATION] = "Bearer " + self._get_jwt()
+        jwt_text = self._get_jwt()
+        headers[hopsconstants.HTTP_CONFIG.HTTP_AUTHORIZATION] = "Bearer " + jwt_text
         connection.request(method, resource, body, headers)
-        response = connection.getresponse()        
+        response = connection.getresponse()
         if response.status == hopsconstants.HTTP_CONFIG.HTTP_UNAUTHORIZED:
-            headers[hopsconstants.HTTP_CONFIG.HTTP_AUTHORIZATION] = "Bearer " + self._get_jwt()
+            headers[hopsconstants.HTTP_CONFIG.HTTP_AUTHORIZATION] = "Bearer " + jwt_text
             connection.request(method, resource, body, headers)
             response = connection.getresponse()
         return response
