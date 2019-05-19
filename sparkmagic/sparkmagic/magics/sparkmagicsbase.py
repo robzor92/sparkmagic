@@ -333,20 +333,27 @@ class Client(MessageSocket):
         self.ipython_display.writeln(u"got url: " + resource_url)            
         connection = self._get_http_connection(https=True)
         self.ipython_display.writeln(u"got connection")
-        response = self._send_request(connection, method, resource_url)
-        self.ipython_display.writeln(u"got response")
+        headers = {}
+        jwt_text = self._get_jwt()
+        headers[hopsconstants.HTTP_CONFIG.HTTP_AUTHORIZATION] = "Bearer " + jwt_text
+        connection.request(method, resource_url, None, headers)
+        response = connection.getresponse()
+        if response.status == hopsconstants.HTTP_CONFIG.HTTP_UNAUTHORIZED:
+            headers[hopsconstants.HTTP_CONFIG.HTTP_AUTHORIZATION] = "Bearer " + jwt_text
+            connection.request(method, resource, body, headers)
+            response = connection.getresponse()
+        
         # '500' response if maggy has not registered yet
         if reponse.status != 200:
-            self.ipython_display.writeln(u"bad response")
             raise Exception
         resp_body = response.read()
         resp = json.loads(resp_body)
 
         # Reset values to 'None' if empty string returned
-        self._maggy_ip = resp[u"hostIp"]
-        self._maggy_port = resp[u"port"]
-        self._secret = resp[u"secret"]
-        self.ipython_display.writeln("Found! " + self._maggy_ip)
+        self._maggy_ip = resp[u'hostIp']
+        self._maggy_port = resp[u'port']
+        self._secret = resp[u'secret']
+        connection.close()
 
     def _get_hopsworks_rest_endpoint(self):
         self.ipython_display.writeln("endpoint")
