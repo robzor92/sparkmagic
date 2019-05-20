@@ -229,7 +229,9 @@ class Client(MessageSocket):
         """Close the client's sockets."""
         if self.hb_sock != None:
             self.hb_sock.close()
-
+        if self.t != None:
+            t.join()
+                
     def start_heartbeat(self):
 
         def _heartbeat(self):
@@ -270,9 +272,9 @@ class Client(MessageSocket):
                         self.ipython_display.writeln("Received a msg from  maggy server...")
 
 
-        t = Thread(target=_heartbeat, args=(self,))
-        t.daemon = True
-        t.start()
+        self.t = Thread(target=_heartbeat, args=(self,))
+        self.t.daemon = True
+        self.t.start()
 
 
     def stop(self):
@@ -344,7 +346,7 @@ class Client(MessageSocket):
             response = connection.getresponse()
         
         # '500' response if maggy has not registered yet
-        if reponse.status != 200:
+        if response.status != 200:
             raise Exception
         resp_body = response.read()
         resp = json.loads(resp_body)
