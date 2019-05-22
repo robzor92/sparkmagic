@@ -14,11 +14,6 @@ from .command import Command
 from .exceptions import LivyClientTimeoutException, \
     LivyUnexpectedStatusException, BadUserDataException, SqlContextNotFoundException
 
-import os
-import json
-import pickle
-import socket
-import struct
 
 class _HeartbeatThread(threading.Thread):
     def __init__(self, livy_session, refresh_seconds, retry_seconds, run_at_most=None):
@@ -103,7 +98,7 @@ class LivySession(ObjectWithGuid):
         self.kind = kind
         self.id = session_id
         self.session_info = u""
-
+         
         self._heartbeat_thread = None
         if session_id == -1:
             self.status = constants.NOT_STARTED_SESSION_STATUS
@@ -141,7 +136,6 @@ class LivySession(ObjectWithGuid):
             self.ipython_display.html(html)
 
             command = Command("spark")
-            
             (success, out) = command.execute(self)
 
             if success:
@@ -313,6 +307,3 @@ class LivySession(ObjectWithGuid):
             return u"""<a target="_blank" href="{1}">{0}</a>""".format(text, url)
         else:
             return u""
-
-
-
