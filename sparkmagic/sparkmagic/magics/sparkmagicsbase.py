@@ -42,6 +42,7 @@ except ImportError:
 
 MAX_RETRIES = 3
 BUFSIZE = 1024 * 2
+DEBUG = False
 
 @magics_class
 class SparkMagicBase(Magics):
@@ -52,7 +53,7 @@ class SparkMagicBase(Magics):
         self.logger = SparkLog(u"SparkMagics")
         self.ipython_display = IpythonDisplay()
         self.spark_controller = SparkController(self.ipython_display)
-                
+
         self.logger.debug("Initialized spark magics.")
 
         if spark_events is None:
@@ -77,9 +78,10 @@ class SparkMagicBase(Magics):
             raise
         elif ".lagom" in cell:
             client = Client(self.spark_controller, self.session_name, 5, self.ipython_display)
-            try: 
+            try:
                 client.start_heartbeat()
-                #self.ipython_display.writeln("Started heartbeating...")
+                if DEBUG:
+                    self.ipython_display.writeln("Started heartbeating...")
                 self.execute_final(cell, output_var, samplemethod, maxrows, samplefraction, session_name, coerce)
             except:
                 raise
@@ -89,11 +91,13 @@ class SparkMagicBase(Magics):
                 try:
                     client.close()
                 except:
-                    print("Problem closing socket connecting to Maggy")
+                    if DEBUG:
+                        print("Socket already closed by maggy server.")
+                    pass
         else:
             self.execute_final(cell, output_var, samplemethod, maxrows, samplefraction, session_name, coerce)
 
-            
+
     @staticmethod
     def _spark_store_command(output_var, samplemethod, maxrows, samplefraction, coerce):
         return SparkStoreCommand(output_var, samplemethod, maxrows, samplefraction, coerce=coerce)
@@ -172,7 +176,6 @@ class MessageSocket(object):
         sock.sendall(buf)
 
 
-            
 class Client(MessageSocket):
     """Client to register and await log events
 
@@ -186,8 +189,7 @@ class Client(MessageSocket):
         self.server_addr = None
         self.done = False
         self.hb_interval = hb_interval
-        self.ipython_display = ipython_display        
-        #self.ipython_display.writeln("Starting Maggy Client")
+        self.ipython_display = ipython_display
         self.spark_controller = spark_controller
         self.session_name = session_name
         self._app_id = None
@@ -195,14 +197,14 @@ class Client(MessageSocket):
         self._maggy_port = None
         self._secret = None
         self._num_trials = None
-        self._trials_todate = None                
-        
+        self._trials_todate = None
+
     def _request(self, req_sock, msg_data=None):
         """Helper function to wrap msg w/ msg_type."""
         msg = {}
         msg['type'] = "LOG"
         msg['secret'] = self._secret
-        
+
         if msg_data or ((msg_data == True) or (msg_data == False)):
             msg['data'] = msg_data
 
@@ -216,10 +218,19 @@ class Client(MessageSocket):
                 tries += 1
                 if tries >= MAX_RETRIES:
                     raise
-                print("Socket error: {}".format(e))
+                if DEBUG:
+                    print("Socket error: {}".format(e))
                 req_sock.close()
                 req_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                req_sock.connect(self.server_addr)
+                try:
+                    req_sock.connect(self.server_addr)
+                except socket.error as exp:
+                    # If we can't connect again, maggy is probably done
+                    if DEBUG:
+                        print("Maggy server terminated.")
+                    tries = MAX_RETRIES
+                    self.stop()
+                    return
 
         resp = MessageSocket.receive(self, req_sock)
 
@@ -229,47 +240,66 @@ class Client(MessageSocket):
         """Close the client's sockets."""
         if self.hb_sock != None:
             self.hb_sock.close()
-        if self.t != None:
-            t.join()
-                
+            if DEBUG:
+                print("HB socket closed")
+        if self.t.isAlive():
+            self.t.join()
+
     def start_heartbeat(self):
 
         def _heartbeat(self):
             self._app_id = self.spark_controller.get_app_id(self.session_name)
-                
+
             num_tries = 10
             while num_tries > 0:
                 num_tries -= 1
                 try:
-                    #self.ipython_display.writeln("Looking for the maggy server...")
+                    if DEBUG:
+                        self.ipython_display.writeln("Looking for the maggy server...")
                     self._get_maggy_driver()
                     num_tries = 0
-                    self.server_addr = (self._maggy_ip, self._maggy_port)                            
+                    self.server_addr = (self._maggy_ip, self._maggy_port)
                 except:
-                    time.sleep(self.hb_interval)                    
+                    time.sleep(self.hb_interval)
                     pass
 
-            #self.ipython_display.writeln("Found the maggy server...")                                    
+            if DEBUG:
+                self.ipython_display.writeln("Serveraddr: {0}, Secret: {1}"
+                    .format(self.server_addr, self._secret))
+
             # 3. Start thread running polling logs in Maggy.
             self.hb_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.hb_sock.connect(self.server_addr)
-            self.ipython_display.writeln("Connected to the maggy server...")
 
-            resp = self._request(self.hb_sock,'LOG')            
+            if DEBUG:
+                self.ipython_display.writeln("Connected to the maggy server...")
+
+            # get total number of trials for first time to init tqdm
+            resp = self._request(self.hb_sock,'LOG')
+
+            if DEBUG:
+                self.ipython_display.writeln('First message received: {}'.format(resp))
+
             self._num_trials = 0
+            self._trials_todate = 0
             if resp['num_trials'] != None:
                 self._num_trials = resp['num_trials']
+            if resp['to_date'] != None:
+                self._trials_todate = resp['to_date']
 
-            while not self.done:
-                # self._num_trials is now 'set', and self._trials_todate
-                for j in tqdm_notebook(range(self._num_trials), desc='tqdm loop'):
-                    if self.done == False: 
-                        break 
-                    with tqdm(total=self._num_trials) as pbar:
+            with tqdm_notebook(range(self._num_trials),
+                desc='Maggy experiment',
+                unit='trial',
+                postfix={'early stopped': resp['stopped'],
+                    'best metric': resp['metric']}) as pbar:
+
+                while not self.done:
+                    time.sleep(self.hb_interval)
+                    resp = self._request(self.hb_sock,'LOG')
+                    if DEBUG:
+                        self.ipython_display.writeln('Another message received: {}'.format(resp))
+                    if resp:
                         _ = self._handle_message(resp, pbar)
-                        time.sleep(self.hb_interval)
-                        resp = self._request(self.hb_sock,'LOG')
-                        self.ipython_display.writeln("Received a msg from  maggy server...")
 
 
         self.t = Thread(target=_heartbeat, args=(self,))
@@ -283,68 +313,60 @@ class Client(MessageSocket):
 
     def _handle_message(self, msg, pbar):
         """
-        Handles a  message dictionary. Expects a 'type' and 'data' attribute in
+        Handles a  message dictionary. Expects a 'type' attribute in
         the message dictionary.
+
+        {‘type’: 'OK' or 'ERR',
+            ‘ex_logs’: string,     # aggregated logs by all executors
+            ‘num_trials’: int,     # total number planned trials
+            ‘to_date’: int,        # number trials finished to date
+            ‘stopped’: int,        # number trials early stopped
+            ‘metric’: float        # best metric to date
+        }
 
         Args:
             sock:
             msg:
 
-    {‘type’: 'OK' or 'ERR',
-     ‘ex_logs’: string,     # aggregated logs by all executors
-     ‘num_trials’: int,     # total number planned trials
-     ‘to_date’: int,        # number trials finished to date
-     ‘stopped’: int,        # number trials early stopped
-     ‘metric’: float        # best metric to date
-    }
-
         Returns:
 
         """
-        if msg['type'] == 'OK':
-            self.ipython_display.writeln("SUCCESS")
-        else:
+        if msg['type'] != 'OK':
             self.ipython_display.writeln("FAILURE")
             return
 
-        if msg['to_date'] != None:
-            self.ipython_display.writeln("Number trials finished: " + str(msg['to_date']))
-            pbar = msg['to_date']
-            
-        if msg['stopped'] != None:
-            self.ipython_display.writeln("Number trials stopped: " + str(msg['stopped']))
+        if msg['to_date'] > self._trials_todate:
+            pbar.update(msg['to_date'] - self._trials_todate)
+            self._trials_todate = msg['to_date']
 
-        if msg['metric'] != None:
-            self.ipython_display.writeln("Best result, so far: " + str(msg['metric']))            
+        pbar.set_postfix({'early stopped': msg['stopped'],
+                    'best metric': msg['metric']})
 
-        if msg['ex_logs'] != None:
-            self.ipython_display.writeln(msg['ex_logs'])
-            
-# https://towardsdatascience.com/progress-bars-in-python-4b44e8a4c482
-# update 'pbar'. pbar.update(1)
+        if msg['ex_logs']:
+            self.ipython_display.write(msg['ex_logs'])
+
         return
-                
+
     def _get_maggy_driver(self):
-        #self.ipython_display.writeln(u"Asking Hopsworks")        
+        if DEBUG:
+            self.ipython_display.writeln(u"Asking Hopsworks")
         method = hopsconstants.HTTP_CONFIG.HTTP_GET
-        #self.ipython_display.writeln(u"Got Method")
         resource_url = hopsconstants.DELIMITERS.SLASH_DELIMITER + \
                        hopsconstants.REST_CONFIG.HOPSWORKS_REST_RESOURCE + hopsconstants.DELIMITERS.SLASH_DELIMITER + \
                        "maggy" + hopsconstants.DELIMITERS.SLASH_DELIMITER + "drivers" + \
                        hopsconstants.DELIMITERS.SLASH_DELIMITER + self._app_id
-        #self.ipython_display.writeln(u"got url: " + resource_url)            
         connection = self._get_http_connection(https=True)
-        #self.ipython_display.writeln(u"got connection")
         headers = {}
         jwt_text = self._get_jwt()
         headers[hopsconstants.HTTP_CONFIG.HTTP_AUTHORIZATION] = "Bearer " + jwt_text
         connection.request(method, resource_url, None, headers)
         response = connection.getresponse()
+
         if response.status == hopsconstants.HTTP_CONFIG.HTTP_UNAUTHORIZED:
             headers[hopsconstants.HTTP_CONFIG.HTTP_AUTHORIZATION] = "Bearer " + jwt_text
             connection.request(method, resource, body, headers)
             response = connection.getresponse()
-        
+
         # '500' response if maggy has not registered yet
         if response.status != 200:
             raise Exception
@@ -358,20 +380,17 @@ class Client(MessageSocket):
         connection.close()
 
     def _get_hopsworks_rest_endpoint(self):
-        #self.ipython_display.writeln("endpoint")
         elastic_endpoint = os.environ[hopsconstants.ENV_VARIABLES.REST_ENDPOINT_END_VAR]
         return elastic_endpoint
 
-            
     def _get_host_port_pair(self):
         endpoint = self._get_hopsworks_rest_endpoint()
-        #self.ipython_display.writeln("got endpoint")
         if 'http' in endpoint:
             last_index = endpoint.rfind('/')
             endpoint = endpoint[last_index + 1:]
             host_port_pair = endpoint.split(':')
             return host_port_pair
-        
+
     def _get_http_connection(self, https=False):
         host_port_pair = self._get_host_port_pair()
         if (https):
