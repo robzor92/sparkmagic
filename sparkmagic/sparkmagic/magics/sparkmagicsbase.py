@@ -65,7 +65,7 @@ class SparkMagicBase(Magics):
         if not success:
             self.ipython_display.send_error(out)
         else:
-            self.ipython_display.writeln(out)
+            self.ipython_display.write(out)
             if output_var is not None:
                 spark_store_command = self._spark_store_command(output_var, samplemethod, maxrows, samplefraction, coerce)
                 df = self.spark_controller.run_command(spark_store_command, session_name)
